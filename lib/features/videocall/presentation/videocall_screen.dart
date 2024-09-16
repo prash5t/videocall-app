@@ -24,14 +24,23 @@ class VideoCallScreen extends StatefulWidget {
 class _VideoCallScreenState extends State<VideoCallScreen> {
   RTCPeerConnection? _peerConnection;
   MediaStream? _localStream;
-  RTCVideoRenderer _localRenderer = RTCVideoRenderer();
-  RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
+  MediaStream? _remoteStream;
+  final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
+  final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
+  bool _isConnected = false;
+  List<RTCIceCandidate> _pendingCandidates = [];
+  bool _remoteDescriptionSet = false;
 
   @override
   void initState() {
     super.initState();
     _initRenderers();
     _handlePermissions();
+  }
+
+  Future<void> _initRenderers() async {
+    await _localRenderer.initialize();
+    await _remoteRenderer.initialize();
   }
 
   Future<void> _handlePermissions() async {
@@ -43,7 +52,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       _setupSocketListeners();
     } else {
       print("Permissions not granted, returning to previous screen");
-      Navigator.of(context).pop(); // Return to previous screen
+      Navigator.of(context).pop();
     }
   }
 
@@ -98,29 +107,33 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     );
   }
 
-  Future<void> _initRenderers() async {
-    await _localRenderer.initialize();
-    await _remoteRenderer.initialize();
-  }
-
   void _setupSocketListeners() {
     widget.socket.on('ice_candidate', (data) async {
+      print("Received ICE candidate");
       if (data['target_email'] == widget.userEmail) {
-        await _peerConnection?.addCandidate(
-          RTCIceCandidate(
-            data['candidate']['candidate'],
-            data['candidate']['sdpMid'],
-            data['candidate']['sdpMLineIndex'],
-          ),
+        RTCIceCandidate candidate = RTCIceCandidate(
+          data['candidate']['candidate'],
+          data['candidate']['sdpMid'],
+          data['candidate']['sdpMLineIndex'],
         );
+
+        if (_remoteDescriptionSet) {
+          await _addCandidate(candidate);
+        } else {
+          _pendingCandidates.add(candidate);
+        }
       }
     });
 
     widget.socket.on('offer', (data) async {
+      print("Received offer");
       if (data['target_email'] == widget.userEmail) {
         await _peerConnection?.setRemoteDescription(
           RTCSessionDescription(data['sdp']['sdp'], data['sdp']['type']),
         );
+        _remoteDescriptionSet = true;
+        _processPendingCandidates();
+
         final answer = await _peerConnection?.createAnswer();
         await _peerConnection?.setLocalDescription(answer!);
         widget.socket.emit('answer', {
@@ -131,10 +144,13 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     });
 
     widget.socket.on('answer', (data) async {
+      print("Received answer");
       if (data['target_email'] == widget.userEmail) {
         await _peerConnection?.setRemoteDescription(
           RTCSessionDescription(data['sdp']['sdp'], data['sdp']['type']),
         );
+        _remoteDescriptionSet = true;
+        _processPendingCandidates();
       }
     });
 
@@ -143,14 +159,28 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     });
   }
 
-  Future<RTCPeerConnection> _createPeerConnection() async {
+  Future<void> _addCandidate(RTCIceCandidate candidate) async {
+    try {
+      await _peerConnection?.addCandidate(candidate);
+    } catch (e) {
+      print("Error adding ICE candidate: $e");
+    }
+  }
+
+  void _processPendingCandidates() {
+    print("Processing ${_pendingCandidates.length} pending candidates");
+    _pendingCandidates.forEach(_addCandidate);
+    _pendingCandidates.clear();
+  }
+
+  Future<void> _createPeerConnection() async {
     final config = {
       'iceServers': [
         {'urls': 'stun:stun.l.google.com:19302'},
       ]
     };
 
-    final pc = await createPeerConnection(config, {});
+    _peerConnection = await createPeerConnection(config, {});
 
     _localStream = await navigator.mediaDevices.getUserMedia({
       'audio': true,
@@ -158,26 +188,39 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     });
 
     _localStream?.getTracks().forEach((track) {
-      pc.addTrack(track, _localStream!);
+      _peerConnection?.addTrack(track, _localStream!);
     });
 
     _localRenderer.srcObject = _localStream;
 
-    pc.onIceCandidate = (candidate) {
+    _peerConnection?.onIceCandidate = (candidate) {
+      print("Sending ICE candidate");
       widget.socket.emit('ice_candidate', {
         'target_email': widget.otherUserEmail,
         'candidate': candidate.toMap(),
       });
     };
 
-    pc.onTrack = (event) {
+    _peerConnection?.onTrack = (event) {
+      print("Received remote track: ${event.track.kind}");
       if (event.track.kind == 'video') {
-        _remoteRenderer.srcObject = event.streams[0];
+        setState(() {
+          _remoteStream = event.streams[0];
+          _remoteRenderer.srcObject = _remoteStream;
+          _isConnected = true;
+        });
       }
     };
 
-    _peerConnection = pc;
-    return pc; // Add this line
+    // Only create and send offer if this is the caller
+    if (widget.userEmail == widget.callId.split('_')[0]) {
+      final offer = await _peerConnection?.createOffer();
+      await _peerConnection?.setLocalDescription(offer!);
+      widget.socket.emit('offer', {
+        'target_email': widget.otherUserEmail,
+        'sdp': offer?.toMap(),
+      });
+    }
   }
 
   void _endCall() {
@@ -195,8 +238,13 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       appBar: AppBar(title: Text('Video Call')),
       body: Stack(
         children: [
-          RTCVideoView(_remoteRenderer,
-              objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover),
+          if (_isConnected)
+            RTCVideoView(
+              _remoteRenderer,
+              objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+            )
+          else
+            Center(child: CircularProgressIndicator()),
           Positioned(
             right: 20,
             bottom: 20,
@@ -214,7 +262,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
               child: ElevatedButton(
                 onPressed: _endCall,
                 child: Text('End Call'),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                // style: ElevatedButton.styleFrom(backgroundColor: Colors.grey),
               ),
             ),
           ),
@@ -228,6 +276,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     _localRenderer.dispose();
     _remoteRenderer.dispose();
     _localStream?.dispose();
+    _remoteStream?.dispose();
     _peerConnection?.close();
     super.dispose();
   }
