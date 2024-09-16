@@ -30,6 +30,8 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   bool _isConnected = false;
   List<RTCIceCandidate> _pendingCandidates = [];
   bool _remoteDescriptionSet = false;
+  bool _localStreamReady = false;
+  bool _isFrontCamera = true;
 
   @override
   void initState() {
@@ -174,6 +176,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   }
 
   Future<void> _createPeerConnection() async {
+    print("Creating peer connection...");
     final config = {
       'iceServers': [
         {'urls': 'stun:stun.l.google.com:19302'},
@@ -182,16 +185,23 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
     _peerConnection = await createPeerConnection(config, {});
 
+    print("Getting user media...");
     _localStream = await navigator.mediaDevices.getUserMedia({
       'audio': true,
       'video': true,
     });
 
+    print("Adding tracks to peer connection...");
     _localStream?.getTracks().forEach((track) {
       _peerConnection?.addTrack(track, _localStream!);
     });
 
-    _localRenderer.srcObject = _localStream;
+    print("Setting local renderer source object...");
+    setState(() {
+      _localRenderer.srcObject = _localStream;
+      _localStreamReady = true;
+      print("Local stream is ready: $_localStreamReady");
+    });
 
     _peerConnection?.onIceCandidate = (candidate) {
       print("Sending ICE candidate");
@@ -223,6 +233,16 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
   }
 
+  Future<void> _switchCamera() async {
+    if (_localStream != null) {
+      final videoTrack = _localStream!.getVideoTracks().first;
+      await Helper.switchCamera(videoTrack);
+      setState(() {
+        _isFrontCamera = !_isFrontCamera;
+      });
+    }
+  }
+
   void _endCall() {
     widget.socket.emit('end_call', {
       'target_email': widget.otherUserEmail,
@@ -235,7 +255,10 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Video Call')),
+      appBar: AppBar(
+        title: Text('Call with ${widget.otherUserEmail}'),
+        automaticallyImplyLeading: false, // This removes the back button
+      ),
       body: Stack(
         children: [
           if (_isConnected)
@@ -251,7 +274,17 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
             child: Container(
               width: 100,
               height: 150,
-              child: RTCVideoView(_localRenderer, mirror: true),
+              child: _localStreamReady
+                  ? RTCVideoView(_localRenderer, mirror: _isFrontCamera)
+                  : Container(color: Colors.black),
+            ),
+          ),
+          Positioned(
+            left: 20,
+            bottom: 20,
+            child: FloatingActionButton(
+              onPressed: _switchCamera,
+              child: Icon(Icons.switch_camera),
             ),
           ),
           Positioned(
@@ -262,7 +295,10 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
               child: ElevatedButton(
                 onPressed: _endCall,
                 child: Text('End Call'),
-                // style: ElevatedButton.styleFrom(backgroundColor: Colors.grey),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  foregroundColor: Colors.white,
+                ),
               ),
             ),
           ),
