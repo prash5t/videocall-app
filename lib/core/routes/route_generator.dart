@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../features/auth/presentation/login_screen.dart';
 import '../../features/dashboard/presentation/dashboard_screen.dart';
 import '../../features/videocall/presentation/videocall_screen.dart';
 import 'app_routes.dart';
@@ -6,10 +7,14 @@ import 'app_routes.dart';
 class RouteGenerator {
   static Route<dynamic> generateRoute(RouteSettings settings) {
     switch (settings.name) {
+      case AppRoutes.login:
+        return MaterialPageRoute(builder: (_) => LoginScreen());
       case AppRoutes.dashboard:
+        final args = settings.arguments as Map<String, dynamic>?;
         return MaterialPageRoute(
           builder: (_) => DashboardScreen(
-              userEmail: 'user1@example.com'), // Replace with actual user email
+            userEmail: args?['userEmail'] ?? 'user1@example.com',
+          ),
         );
       case AppRoutes.videoCall:
         final args = settings.arguments as Map<String, dynamic>;
@@ -22,11 +27,7 @@ class RouteGenerator {
           ),
         );
       default:
-        return MaterialPageRoute(
-          builder: (_) => Scaffold(
-            body: Center(child: Text('No route defined for ${settings.name}')),
-          ),
-        );
+        return MaterialPageRoute(builder: (_) => LoginScreen());
     }
   }
 }
