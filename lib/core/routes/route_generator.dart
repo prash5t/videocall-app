@@ -1,17 +1,32 @@
 import 'package:flutter/material.dart';
-import 'package:videocall/core/routes/app_routes.dart';
-import 'package:videocall/features/dashboard/presentation/dashboard_screen.dart';
-import 'package:videocall/features/videocall/presentation/videocall_screen.dart';
+import '../../features/dashboard/presentation/dashboard_screen.dart';
+import '../../features/videocall/presentation/videocall_screen.dart';
+import 'app_routes.dart';
 
-Route<dynamic> onGenerateRoute(RouteSettings settings) {
-  Object? argument = settings.arguments;
-  switch (settings.name) {
-    case AppRoutes.dashboard:
-      return MaterialPageRoute(builder: (context) => const DashboardScreen());
-    case AppRoutes.videoCall:
-      return MaterialPageRoute(
-          builder: (context) => VideoCallScreen(roomId: argument as String));
-    default:
-      return MaterialPageRoute(builder: (context) => const DashboardScreen());
+class RouteGenerator {
+  static Route<dynamic> generateRoute(RouteSettings settings) {
+    switch (settings.name) {
+      case AppRoutes.dashboard:
+        return MaterialPageRoute(
+          builder: (_) => DashboardScreen(
+              userEmail: 'user1@example.com'), // Replace with actual user email
+        );
+      case AppRoutes.videoCall:
+        final args = settings.arguments as Map<String, dynamic>;
+        return MaterialPageRoute(
+          builder: (_) => VideoCallScreen(
+            callId: args['callId'],
+            userEmail: args['userEmail'],
+            otherUserEmail: args['otherUserEmail'],
+            socket: args['socket'],
+          ),
+        );
+      default:
+        return MaterialPageRoute(
+          builder: (_) => Scaffold(
+            body: Center(child: Text('No route defined for ${settings.name}')),
+          ),
+        );
+    }
   }
 }

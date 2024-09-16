@@ -1,17 +1,18 @@
 import 'package:flutter/material.dart';
-import 'package:videocall/core/routes/route_generator.dart';
-
-final navigatorKey = GlobalKey<NavigatorState>();
+import 'core/routes/route_generator.dart';
 
 class VideoCallApp extends StatelessWidget {
-  const VideoCallApp({super.key});
+  const VideoCallApp({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      onGenerateRoute: onGenerateRoute,
-      navigatorKey: navigatorKey,
+      title: 'Video Call App',
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+      ),
+      initialRoute: '/',
+      onGenerateRoute: RouteGenerator.generateRoute,
     );
   }
 }
