@@ -13,5 +13,5 @@ This approach combines the reliability of server-based signaling with the effici
 
 ## Demo
 
-![Demo](static/1.PNG)
-![Demo Video](static/2.GIF)
+![Demo](static/1.png)
+![Demo Video](static/2.gif)
